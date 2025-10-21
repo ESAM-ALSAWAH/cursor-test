@@ -1,0 +1,257 @@
+// B2B eCommerce Database Schema
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User & Authentication
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String
+  password      String
+  role          UserRole  @default(BUYER)
+  company       String?
+  phone         String?
+  avatar        String?
+  emailVerified DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  orders        Order[]
+  cart          CartItem[]
+  addresses     Address[]
+  reviews       Review[]
+  supplierProfile Supplier?
+}
+
+enum UserRole {
+  ADMIN
+  BUYER
+  SUPPLIER
+}
+
+// Supplier/Vendor Profile
+model Supplier {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  businessName    String
+  description     String?
+  logo            String?
+  verified        Boolean  @default(false)
+  rating          Float    @default(0)
+  totalReviews    Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  products        Product[]
+}
+
+// Product Catalog
+model Product {
+  id              String   @id @default(cuid())
+  sku             String   @unique
+  name            String
+  description     String
+  slug            String   @unique
+  images          String[]
+  categoryId      String
+  supplierId      String
+  
+  // Pricing
+  basePrice       Float
+  currency        String   @default("USD")
+  
+  // Inventory
+  stock           Int      @default(0)
+  lowStockAlert   Int      @default(10)
+  
+  // B2B Specifics
+  moq             Int      @default(1) // Minimum Order Quantity
+  unit            String   @default("piece")
+  
+  // Meta
+  featured        Boolean  @default(false)
+  status          ProductStatus @default(ACTIVE)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  category        Category @relation(fields: [categoryId], references: [id])
+  supplier        Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  pricingTiers    PricingTier[]
+  orderItems      OrderItem[]
+  cartItems       CartItem[]
+  reviews         Review[]
+
+  @@index([categoryId])
+  @@index([supplierId])
+  @@index([slug])
+}
+
+enum ProductStatus {
+  ACTIVE
+  DRAFT
+  ARCHIVED
+  OUT_OF_STOCK
+}
+
+// Tiered Pricing for B2B
+model PricingTier {
+  id              String   @id @default(cuid())
+  productId       String
+  minQuantity     Int
+  maxQuantity     Int?
+  price           Float
+  discountPercent Float?
+
+  product         Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+}
+
+// Categories
+model Category {
+  id          String    @id @default(cuid())
+  name        String
+  slug        String    @unique
+  description String?
+  image       String?
+  parentId    String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  parent      Category?  @relation("CategoryToCategory", fields: [parentId], references: [id])
+  children    Category[] @relation("CategoryToCategory")
+  products    Product[]
+
+  @@index([slug])
+}
+
+// Shopping Cart
+model CartItem {
+  id         String   @id @default(cuid())
+  userId     String
+  productId  String
+  quantity   Int
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId])
+  @@index([userId])
+}
+
+// Orders
+model Order {
+  id              String      @id @default(cuid())
+  orderNumber     String      @unique
+  userId          String
+  
+  // Pricing
+  subtotal        Float
+  tax             Float       @default(0)
+  shipping        Float       @default(0)
+  discount        Float       @default(0)
+  total           Float
+  
+  // Status
+  status          OrderStatus @default(PENDING)
+  paymentStatus   PaymentStatus @default(PENDING)
+  
+  // Shipping
+  shippingAddressId String
+  
+  // Metadata
+  notes           String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  user            User        @relation(fields: [userId], references: [id])
+  shippingAddress Address     @relation(fields: [shippingAddressId], references: [id])
+  items           OrderItem[]
+  
+  @@index([userId])
+  @@index([orderNumber])
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  REFUNDED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+model OrderItem {
+  id         String   @id @default(cuid())
+  orderId    String
+  productId  String
+  quantity   Int
+  unitPrice  Float
+  total      Float
+  createdAt  DateTime @default(now())
+
+  order      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product    Product  @relation(fields: [productId], references: [id])
+
+  @@index([orderId])
+}
+
+// Addresses
+model Address {
+  id         String   @id @default(cuid())
+  userId     String
+  label      String   @default("Home")
+  fullName   String
+  company    String?
+  street     String
+  city       String
+  state      String
+  zipCode    String
+  country    String
+  phone      String
+  isDefault  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orders     Order[]
+
+  @@index([userId])
+}
+
+// Reviews
+model Review {
+  id         String   @id @default(cuid())
+  userId     String
+  productId  String
+  rating     Int
+  title      String?
+  comment    String?
+  verified   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId])
+  @@index([productId])
+}
